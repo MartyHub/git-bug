@@ -4,6 +4,8 @@ package commands
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,10 +16,7 @@ import (
 	"github.com/MichaelMure/git-bug/commands/execenv"
 )
 
-// These variables are initialized externally during the build. See the Makefile.
-var GitCommit string
-var GitLastTag string
-var GitExactTag string
+var GitCommit = "unknown"
 
 func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -34,12 +33,34 @@ the same git remote you are already using to collaborate with other people.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			root := cmd.Root()
 
-			if GitExactTag == "undefined" {
-				GitExactTag = ""
-			}
-			root.Version = GitLastTag
-			if GitExactTag == "" {
-				root.Version = fmt.Sprintf("%s-dev-%.10s", root.Version, GitCommit)
+			if bi, ok := debug.ReadBuildInfo(); !ok {
+				root.Version = "unknown"
+			} else {
+				modified := false
+				timestamp := "unknown"
+
+				for _, s := range bi.Settings {
+					switch s.Key {
+					case "vcs.modified":
+						modified = s.Value == "true"
+					case "vcs.revision":
+						GitCommit = s.Value
+					case "vcs.time":
+						if t, err := time.Parse(time.RFC3339, s.Value); err == nil {
+							timestamp = t.Format("060102150405")
+						}
+					}
+				}
+
+				root.Version = bi.Main.Version
+
+				if root.Version == "(devel)" {
+					root.Version = fmt.Sprintf("dev-%s-%.12s", timestamp, GitCommit)
+				}
+
+				if modified {
+					root.Version += " (modified)"
+				}
 			}
 		},
 
